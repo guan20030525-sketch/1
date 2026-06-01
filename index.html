@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pro Acoustic System V12 - Cloud QC Edition</title>
+<style>
+    :root {
+        --bg: #080b10;
+        --panel: #0f1520;
+        --panel2: #131925;
+        --border: #1e2d40;
+        --border2: #2a3d55;
+        --cyan: #00e5ff;
+        --pink: #ff2055;
+        --yellow: #ffd600;
+        --green: #00e676;
+        --purple: #b388ff;
+        --text: #b0bec5;
+        --text2: #607d8b;
+        --text-bright: #eceff1;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Consolas', 'Courier New', monospace;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    header {
+        background: #04060a;
+        border-bottom: 1px solid var(--border);
+        padding: 12px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+        z-index: 100;
+    }
+
+    .logo { display: flex; flex-direction: column; gap: 2px; }
+    .logo-main {
+        font-size: 15px; font-weight: bold; color: var(--text-bright);
+        letter-spacing: 3px; text-transform: uppercase;
+    }
+    .logo-sub { font-size: 10px; color: var(--text2); letter-spacing: 2px; }
+    .logo-ver {
+        color: var(--cyan); font-size: 10px; border: 1px solid var(--cyan);
+        padding: 1px 6px; border-radius: 3px; display: inline-block;
+        margin-left: 8px; vertical-align: middle; opacity: 0.8;
+    }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+
+    .status-pill {
+        display: flex; align-items: center; gap: 8px; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px;
+        font-size: 11px; letter-spacing: 2px;
+    }
+    .led {
+        width: 8px; height: 8px; border-radius: 50%; background: #1a2a3a;
+        transition: all 0.3s; flex-shrink: 0;
+    }
+    .led.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .led.paused { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+    .led.pso-active { background: var(--purple); box-shadow: 0 0 10px var(--purple); animation: blink 0.5s infinite alternate; }
+    @keyframes blink { from { opacity: 1; } to { opacity: 0.4; } }
+
+    /* ── BUTTONS ── */
+    .btn {
+        background: transparent; border: 1px solid var(--border2); color: var(--text);
+        padding: 7px 16px; font-family: 'Consolas', monospace; font-size: 11px;
+        letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer;
+        border-radius: 4px; transition: all 0.2s; white-space: nowrap;
+    }
+    .btn:hover { border-color: var(--cyan); color: var(--cyan); }
+    .btn.primary { border-color: var(--cyan); color: var(--cyan); }
+    .btn.primary:hover { background: var(--cyan); color: #000; }
+    .btn.danger { border-color: var(--pink); color: var(--pink); }
+    .btn.danger:hover { background: var(--pink); color: #fff; }
+    .btn.active-green { border-color: var(--green); color: var(--green); }
+    .btn.ai-pso { border-color: var(--purple); color: var(--purple); }
+    .btn.ai-pso:hover { background: var(--purple); color: #fff; }
+
+    /* ── PROFILE BAR (CLOUD UPDATE) ── */
+    .profile-bar {
+        background: #060910; border-bottom: 1px solid var(--border); padding: 8px 20px;
+        display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    }
+    .profile-label { font-size: 10px; color: var(--text2); letter-spacing: 2px; text-transform: uppercase; }
+    
+    .profile-select-custom {
+        background: var(--panel); color: var(--yellow); border: 1px solid var(--border2);
+        padding: 5px 10px; font-family: 'Consolas', monospace; font-size: 13px;
+        font-weight: bold; border-radius: 4px; min-width: 160px; letter-spacing: 1px;
+        cursor: pointer; outline: none;
+    }
+    .profile-select-custom:focus { border-color: var(--cyan); }
+    
+    .sync-status { font-size: 10px; letter-spacing: 1px; display: flex; align-items: center; gap: 4px; }
+
+    /* ── TOLERANCE CONTROL ── */
+    .tolerance-wrap {
+        display: flex; align-items: center; gap: 8px; margin-left: auto;
+        border-left: 1px solid var(--border); padding-left: 16px; transition: all 0.3s;
+    }
+    .tolerance-wrap.highlight {
+        background: rgba(179, 136, 255, 0.1); border-radius: 4px;
+        box-shadow: inset 0 0 8px rgba(179, 136, 255, 0.2);
+    }
+    .tolerance-label { font-size: 10px; color: var(--text2); letter-spacing: 1px; white-space: nowrap; }
+    .tolerance-val { color: var(--cyan); font-size: 13px; font-weight: bold; min-width: 45px; }
+    input[type="range"] { width: 80px; accent-color: var(--cyan); height: 3px; }
+
+    /* ── CONTENT ── */
+    .content-wrapper { flex: 1; position: relative; overflow: hidden; }
+
+    /* SPECTROGRAM */
+    #view-spectrogram { position: absolute; inset: 0; background: #000; }
+    #spectrogram { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+    #freq-marker { position: absolute; left: 40px; right: 0; height: 1px; background: rgba(0,229,255,0.6); pointer-events: none; display: none; z-index: 3; }
+    #freq-marker-label { position: absolute; left: 44px; background: rgba(0,10,20,0.75); color: var(--cyan); font-size: 10px; padding: 1px 6px; border-radius: 3px; pointer-events: none; display: none; transform: translateY(-50%); white-space: nowrap; z-index: 4; border: 1px solid rgba(0,229,255,0.3); }
+    #hz-scale { position: absolute; left: 0; top: 0; bottom: 0; width: 40px; background: rgba(0,0,0,0.65); border-right: 1px solid rgba(255,255,255,0.06); pointer-events: none; z-index: 2; }
+    .hz-tick { position: absolute; right: 0; transform: translateY(50%); display: flex; align-items: center; gap: 3px; }
+    .hz-tick-line { width: 5px; height: 1px; background: rgba(255,255,255,0.25); }
+    .hz-tick-label { font-size: 9px; color: rgba(255,255,255,0.4); text-align: right; width: 28px; letter-spacing: 0.3px; }
+
+    /* DASHBOARD */
+    #view-dashboard { position: absolute; inset: 0; display: flex; flex-direction: column; z-index: 10; }
+    #view-dashboard.hidden { opacity: 0; pointer-events: none; }
+    .dash-top { flex: 1; display: flex; gap: 1px; background: var(--border); }
+    .metric-panel { flex: 1; background: var(--panel); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; position: relative; overflow: hidden; }
+    .metric-panel::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+    .metric-panel.cyan::before { background: var(--cyan); }
+    .metric-panel.pink::before { background: var(--pink); }
+    .metric-panel.yellow::before { background: var(--yellow); }
+    .metric-title { font-size: 10px; letter-spacing: 3px; color: var(--text2); text-transform: uppercase; }
+    .metric-value { font-size: clamp(48px, 8vw, 96px); font-weight: bold; line-height: 1; transition: color 0.3s; }
+    .metric-value.cyan { color: var(--cyan); }
+    .metric-value.pink { color: var(--pink); }
+    .metric-value.yellow { color: var(--yellow); }
+    .metric-unit { font-size: 16px; color: var(--text2); margin-left: 6px; }
+    .mini-bar-wrap { position: absolute; bottom: 8px; left: 12px; right: 12px; height: 30px; display: flex; align-items: flex-end; gap: 1px; opacity: 0.4; }
+    .mini-bar { flex: 1; background: var(--cyan); border-radius: 1px 1px 0 0; min-height: 1px; transition: height 0.05s; }
+    .db-meter-wrap { position: absolute; right: 12px; top: 40px; bottom: 40px; width: 16px; display: flex; flex-direction: column; gap: 2px; align-items: center; }
+    .db-meter-bar { flex: 1; width: 6px; border-radius: 3px; background: var(--border); transition: background 0.08s; }
+    .db-meter-bar.lit { background: var(--green); }
+    .db-meter-bar.lit.warn { background: var(--yellow); }
+    .db-meter-bar.lit.hot { background: var(--pink); }
+
+    /* CALIBRATION BAR */
+    .calib-bar { background: #04060a; border-top: 1px solid var(--border); padding: 10px 20px; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    .calib-gear { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; transition: border-color 0.2s; }
+    .calib-gear.calibrated { border-color: var(--border2); }
+    .calib-gear.active-gear { border-color: var(--green); box-shadow: 0 0 8px rgba(0,230,118,0.15); }
+    .calib-gear-top { display: flex; justify-content: space-between; align-items: center; }
+    .gear-num { font-size: 12px; font-weight: bold; color: var(--text2); letter-spacing: 1px; }
+    .gear-num.set { color: var(--yellow); }
+    .gear-num.active { color: var(--green); }
+    .rec-btn { background: var(--panel2); border: 1px solid var(--border2); color: var(--text-bright); padding: 5px 10px; font-family: 'Consolas', monospace; font-size: 10px; letter-spacing: 1px; cursor: pointer; border-radius: 3px; text-transform: uppercase; transition: all 0.15s; font-weight: bold; }
+    .rec-btn:hover { border-color: var(--cyan); background: var(--cyan); color: #000; }
+    .target-hz { font-size: 10px; color: var(--text2); }
+    .target-hz span { color: var(--border2); font-weight: bold; font-size: 14px; }
+    .target-hz.set span { color: var(--cyan); }
+
+    /* TOAST */
+    #toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--border2); color: var(--text-bright); padding: 10px 24px; border-radius: 20px; font-size: 13px; font-weight: bold; letter-spacing: 1px; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <div class="logo-main">PRO ACOUSTIC SYSTEM <span class="logo-ver">CLOUD QC</span></div>
+        <div class="logo-sub">EDGE COMPUTING · REAL-TIME FREQ ANALYSIS</div>
+    </div>
+    <div class="header-right">
+        <button id="btn-pso" class="btn ai-pso" onclick="startPSO()">✦ PSO OPTIMIZE</button>
+        <button id="btn-mic" class="btn primary" onclick="startMic()">START MIC</button>
+        <button id="btn-pause" class="btn danger" onclick="togglePause()">PAUSE</button>
+        <button id="btn-view" class="btn" onclick="toggleView()">SPECTROGRAM</button>
+        <div class="status-pill">
+            <span class="led" id="led"></span>
+            <span id="status-text">OFFLINE</span>
+        </div>
+    </div>
+</header>
+
+<div class="profile-bar">
+    <span class="profile-label">雲端設備</span>
+    <select id="cloud-profile-select" class="profile-select-custom" onchange="loadCloudProfile(this.value)">
+        <option value="">載入資料庫中...</option>
+    </select>
+    
+    <div class="sync-status" id="sync-status-wrap">
+        <span class="led" id="sync-led" style="background: var(--yellow); box-shadow: 0 0 5px var(--yellow);"></span>
+        <span id="sync-text" style="color: var(--yellow);">連線中</span>
+    </div>
+
+    <div class="tolerance-wrap" id="wrap-tol">
+        <span class="tolerance-label">TOLERANCE</span>
+        <input type="range" id="tolerance-slider" min="5" max="150" value="60" step="1" oninput="updateTolerance(this.value)">
+        <span class="tolerance-val" id="tolerance-display">±60 Hz</span>
+    </div>
+
+    <div class="tolerance-wrap" id="wrap-stab" style="margin-left: 0;">
+        <span class="tolerance-label">STABILITY</span>
+        <input type="range" id="stability-slider" min="1" max="50" value="15" step="1" oninput="updateStability(this.value)">
+        <span class="tolerance-val" id="stability-display">±15 Hz</span>
+    </div>
+</div>
+
+<div class="content-wrapper">
+    <div id="view-spectrogram">
+        <canvas id="spectrogram"></canvas>
+        <div id="hz-scale"></div>
+        <div id="freq-marker"></div>
+        <div id="freq-marker-label"></div>
+    </div>
+
+    <div id="view-dashboard">
+        <div class="dash-top">
+            <div class="metric-panel cyan">
+                <div class="metric-title">Peak Frequency</div>
+                <div><span id="hz-val" class="metric-value cyan">—</span><span class="metric-unit">Hz</span></div>
+                <div class="mini-bar-wrap" id="mini-bars"></div>
+            </div>
+            <div class="metric-panel pink" style="position:relative">
+                <div class="metric-title">Volume (dB SPL)</div>
+                <div><span id="db-val" class="metric-value pink">—</span><span class="metric-unit">dB</span></div>
+                <div class="db-meter-wrap" id="db-meter"></div>
+            </div>
+            <div class="metric-panel yellow" id="gear-panel">
+                <div class="metric-title">Current Match Gear</div>
+                <div><span id="gear-val" class="metric-value yellow">—</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="calib-bar" id="calib-bar"></div>
+<div id="toast"></div>
+
+<script>
+// ==========================================
+// CONFIG & CLOUD DB
+// ==========================================
+const MAX_GEARS = 5;
+const FFT_SIZE = 16384;
+const MAX_SEARCH_HZ = 300;
+const CALIBRATION_OFFSET = 70;
+
+// ⚠️ 重要：請將下方的 URL 換成你的 Google Apps Script 網址 ⚠️
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz77DgV-1iNXuM4zNGjkc9cnpWJ4Jaj8c9qBVenigNbeEsXuA_Yg92LpZIpuIqMVW23/exec'; 
+
+let cloudProfiles = {}; 
+// 【新增】雙重基準線：絕對基準(雲端) vs 動態基準(學習)
+let goldStandardData = { '1':0, '2':0, '3':0, '4':0, '5':0 }; 
+let dynamicProfileData = { '1':0, '2':0, '3':0, '4':0, '5':0 }; 
+let tolerance = 60;
+let stabilityThreshold = 15;
+
+// ==========================================
+// 初始化與雲端連線
+// ==========================================
+window.addEventListener('DOMContentLoaded', async () => {
+    renderCalibBar(); 
+    try {
+        const response = await fetch(WEB_APP_URL);
+        cloudProfiles = await response.json();
+        
+        const select = document.getElementById('cloud-profile-select');
+        select.innerHTML = '<option value="">-- 請選擇測試設備 --</option>';
+        
+        // 生成雲端設備清單
+        Object.keys(cloudProfiles).forEach(name => {
+            select.add(new Option(name, name));
+        });
+        
+        // 【新增】在選單最下方加入沙盒模式選項
+        select.add(new Option("➕ 自訂設備 (本地暫存不連網)", "CUSTOM_MODE"));
+        
+        document.getElementById('sync-led').style.background = 'var(--green)';
+        document.getElementById('sync-led').style.boxShadow = '0 0 5px var(--green)';
+        document.getElementById('sync-text').textContent = '已連線';
+        document.getElementById('sync-text').style.color = 'var(--green)';
+        showToast("✅ 雲端資料庫同步完成");
+    } catch (err) {
+        document.getElementById('sync-led').style.background = 'var(--pink)';
+        document.getElementById('sync-led').style.boxShadow = '0 0 5px var(--pink)';
+        document.getElementById('sync-text').textContent = '連線失敗';
+        document.getElementById('sync-text').style.color = 'var(--pink)';
+        showToast("❌ 無法連接雲端資料庫，請確認網址");
+    }
+});
+
+// 當使用者切換設備時
+function loadCloudProfile(deviceName) {
+    if (!deviceName) {
+        goldStandardData = { '1':0, '2':0, '3':0, '4':0, '5':0 };
+        dynamicProfileData = { '1':0, '2':0, '3':0, '4':0, '5':0 };
+        renderCalibBar();
+        return;
+    }
+    
+    if (deviceName === "CUSTOM_MODE") {
+        showToast("🛠️ 進入自訂模式：點擊下方數字可自訂頻率，資料不會上傳");
+        // 清空基準，讓使用者自己填
+        goldStandardData = { '1':0, '2':0, '3':0, '4':0, '5':0 };
+        dynamicProfileData = { '1':0, '2':0, '3':0, '4':0, '5':0 };
+        renderCalibBar();
+        return;
+    }
+    
+    // 載入該設備的 5 個檔位標準頻率
+    const gears = cloudProfiles[deviceName].gears;
+    goldStandardData = {
+        '1': gears[0] || 0, '2': gears[1] || 0, '3': gears[2] || 0, '4': gears[3] || 0, '5': gears[4] || 0
+    };
+    // 複製一份給動態基準
+    dynamicProfileData = { ...goldStandardData };
+    
+    showToast(`🔄 已載入 [${deviceName}] 標準參數`);
+    renderCalibBar();
+}
+
+// 【新增】處理使用者點擊修改頻率 (沙盒模式專用)
+function setCustomHz(gearNum) {
+    const deviceName = document.getElementById('cloud-profile-select').value;
+    if (deviceName !== "CUSTOM_MODE") {
+        return showToast("⚠️ 只有在「自訂設備」模式下才能手動修改頻率");
+    }
+    
+    const input = prompt(`請輸入第 ${gearNum} 檔的目標頻率 (Hz)：`, dynamicProfileData[gearNum] || 50);
+    const val = parseFloat(input);
+    if (!isNaN(val) && val > 0) {
+        goldStandardData[gearNum] = val; // 自訂模式下，絕對基準就是輸入值
+        dynamicProfileData[gearNum] = val;
+        renderCalibBar();
+        showToast(`🔧 第 ${gearNum} 檔已設定為 ${val} Hz`);
+    }
+}
+
+// ==========================================
+// 核心：防飄移學習與雲端上傳
+// ==========================================
+async function recordAndCheckGear(gearNum) {
+    const deviceName = document.getElementById('cloud-profile-select').value;
+    if (!deviceName) return showToast("⚠️ 請先從上方選擇要測試的設備");
+    if (currentHz <= 0) return showToast("⚠️ 未偵測到穩定音訊訊號");
+
+    const goldHz = goldStandardData[gearNum];
+    if (!goldHz || goldHz === 0) return showToast(`❌ 該設備第 ${gearNum} 檔尚未設定標準值`);
+
+    // 計算與「絕對基準」的誤差 %
+    const diff = Math.abs(currentHz - goldHz);
+    const errorRatio = diff / goldHz;
+    const errorPercent = (errorRatio * 100).toFixed(2);
+
+    // 判斷邏輯：誤差小於等於 5%
+    if (errorRatio <= 0.05) {
+        
+        // 攔截點：如果是自訂模式，只顯示成功，更新動態值，但不上傳！
+        if (deviceName === "CUSTOM_MODE") {
+            dynamicProfileData[gearNum] = parseFloat(currentHz.toFixed(1));
+            renderCalibBar();
+            return showToast(`✅ [本地測試] 實測 ${currentHz.toFixed(1)}Hz，誤差 ${errorPercent}%，通過！`);
+        }
+
+        showToast(`🎯 準確！誤差 ${errorPercent}%，上傳中...`);
+        
+        // --- 核心：動態學習邏輯 ---
+        // 1. 新動態平均 (80% 舊的動態值 + 20% 本次實測值)
+        let newDynamic = (dynamicProfileData[gearNum] * 0.8) + (currentHz * 0.2);
+        
+        // 2. 防飄移鎖 (Clamp)：限制新動態值最多只能偏離出廠值 3%
+        const maxDrift = 0.03;
+        if (newDynamic > goldHz * (1 + maxDrift)) newDynamic = goldHz * (1 + maxDrift);
+        if (newDynamic < goldHz * (1 - maxDrift)) newDynamic = goldHz * (1 - maxDrift);
+        
+        dynamicProfileData[gearNum] = parseFloat(newDynamic.toFixed(1));
+        renderCalibBar(); // 更新 UI 顯示新的動態目標
+        // ------------------------
+
+        // UI 按鈕回饋
+        const btn = document.getElementById(`btn-rec-${gearNum}`);
+        const oldText = btn.innerHTML;
+        btn.style.background = 'var(--green)'; btn.style.color = '#000'; btn.innerHTML = '✔ 上傳中';
+
+        try {
+            await fetch(WEB_APP_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    device: deviceName,
+                    gear: gearNum,
+                    measuredHz: currentHz.toFixed(1),
+                    error: errorPercent
+                })
+            });
+            showToast(`💾 [第 ${gearNum} 檔] 數據已存入 Google Sheets！`);
+        } catch(e) {
+            showToast("❌ 上傳失敗，請檢查網路連線");
+        } finally {
+            setTimeout(() => { btn.style.background = ''; btn.style.color = ''; btn.innerHTML = oldText; }, 2000);
+        }
+    } else {
+        // 誤差過大，拒絕存檔
+        showToast(`🚫 誤差過大 (${errorPercent}%)，拒絕存檔！出廠基準為 ${goldHz}Hz`);
+        const hzText = document.getElementById('hz-val');
+        hzText.style.color = 'var(--pink)';
+        hzText.style.textShadow = '0 0 20px var(--pink)';
+        setTimeout(() => { hzText.style.color = 'var(--cyan)'; hzText.style.textShadow = 'none'; }, 1500);
+    }
+}
+
+// ==========================================
+// UI SLIDERS
+// ==========================================
+function updateTolerance(v) { tolerance = parseInt(v); document.getElementById('tolerance-display').textContent = `±${v} Hz`; }
+function updateStability(v) { stabilityThreshold = parseInt(v); document.getElementById('stability-display').textContent = `±${v} Hz`; }
+
+// ==========================================
+// AUDIO & DSP FILTERS
+// ==========================================
+let audioCtx, analyser, freqDataArray, timeDataArray, source;
+let isRunning = false, isPaused = false;
+let currentHz = 0, currentDb = 0;
+
+const HZ_SMOOTH_FRAMES = 8, STABILITY_FRAMES = 15, HYSTERESIS_FRAMES = 10;
+const hzBuffer = [], stabilityBuffer = [];
+let stableHz = 0, stableFrameCount = 0, lockedHz = 0, candidateHz = 0, candidateCount = 0;
+
+function smoothHz(rawHz) {
+    if (rawHz > 0) { hzBuffer.push(rawHz); if (hzBuffer.length > HZ_SMOOTH_FRAMES) hzBuffer.shift(); }
+    if (hzBuffer.length === 0) return 0;
+    return hzBuffer.reduce((a, b) => a + b, 0) / hzBuffer.length;
+}
+
+function stabilityFilter(hz, currentStab) {
+    if (hz <= 0) { stabilityBuffer.length = 0; stableFrameCount = 0; stableHz = 0; return 0; }
+    stabilityBuffer.push(hz);
+    if (stabilityBuffer.length > STABILITY_FRAMES) stabilityBuffer.shift();
+    const min = Math.min(...stabilityBuffer), max = Math.max(...stabilityBuffer);
+    if (stabilityBuffer.length >= STABILITY_FRAMES && (max - min) <= currentStab) {
+        stableFrameCount++;
+        stableHz = stabilityBuffer.reduce((a, b) => a + b, 0) / stabilityBuffer.length;
+    } else if (stabilityBuffer.length < STABILITY_FRAMES) { stableHz = 0; } 
+    else { stableFrameCount = 0; stableHz = 0; stabilityBuffer.length = 0; }
+    return stableHz;
+}
+
+function hpsDetect(freqData, nyquist, maxSearchHz) {
+    const binCount = freqData.length, maxBin = Math.floor((maxSearchHz / nyquist) * binCount), harmonics = 3;
+    const outMinBin = maxBin, outMaxBin = Math.min(binCount, maxBin * 2);
+    let outMaxVal = 0, inMaxVal = 0;
+    for (let i = outMinBin; i < outMaxBin; i++) if (freqData[i] > outMaxVal) outMaxVal = freqData[i];
+    for (let i = 2; i < maxBin; i++) if (freqData[i] > inMaxVal) inMaxVal = freqData[i];
+    if (outMaxVal > inMaxVal * 1.2) return 0;
+    let bestBin = -1, bestScore = -Infinity;
+    for (let i = 2; i < maxBin; i++) {
+        if (freqData[i] < 30) continue;
+        let score = freqData[i] * 2;
+        for (let h = 2; h <= harmonics; h++) {
+            const harmonicBin = i * h;
+            if (harmonicBin < binCount && (harmonicBin * nyquist) / binCount <= maxSearchHz) score += freqData[harmonicBin];
+        }
+        if (score > bestScore) { bestScore = score; bestBin = i; }
+    }
+    return (bestBin < 0 || freqData[bestBin] < 30) ? 0 : (bestBin * nyquist) / binCount;
+}
+
+function hysteresisFilter(hz, currentStab) {
+    if (hz <= 0) { lockedHz = 0; candidateHz = 0; candidateCount = 0; return 0; }
+    if (lockedHz > 0 && Math.abs(hz - lockedHz) <= currentStab) { lockedHz = hz; candidateHz = 0; candidateCount = 0; return lockedHz; }
+    if (Math.abs(hz - candidateHz) <= currentStab) candidateCount++;
+    else { candidateHz = hz; candidateCount = 1; }
+    if (candidateCount >= HYSTERESIS_FRAMES) { lockedHz = candidateHz; candidateHz = 0; candidateCount = 0; }
+    return lockedHz > 0 ? lockedHz : 0;
+}
+
+const canvas = document.getElementById('spectrogram');
+const ctx2d = canvas.getContext('2d', { willReadFrequently: true });
+
+async function startMic() {
+    if (isRunning) return;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser(); analyser.fftSize = FFT_SIZE; analyser.smoothingTimeConstant = 0.75;
+        source = audioCtx.createMediaStreamSource(stream); source.connect(analyser);
+        freqDataArray = new Uint8Array(analyser.frequencyBinCount); timeDataArray = new Float32Array(analyser.fftSize);
+        isRunning = true;
+        document.getElementById('led').className = 'led on'; document.getElementById('status-text').textContent = 'ONLINE';
+        document.getElementById('btn-mic').textContent = 'MIC ON'; document.getElementById('btn-mic').classList.replace('primary', 'active-green');
+        drawLoop();
+    } catch(err) { showToast('Mic Error: ' + err.message); }
+}
+
+function togglePause() {
+    if (!isRunning) return;
+    isPaused = !isPaused;
+    document.getElementById('btn-pause').textContent = isPaused ? 'RESUME' : 'PAUSE';
+    document.getElementById('led').className = 'led ' + (isPaused ? 'paused' : 'on');
+    document.getElementById('status-text').textContent = isPaused ? 'PAUSED' : 'ONLINE';
+}
+
+const miniBarsEl = document.getElementById('mini-bars');
+for (let i = 0; i < 32; i++) miniBarsEl.appendChild(document.createElement('div')).className = 'mini-bar';
+const miniBarEls = miniBarsEl.querySelectorAll('.mini-bar');
+
+const dbMeterEl = document.getElementById('db-meter');
+for (let i = 0; i < 20; i++) dbMeterEl.appendChild(document.createElement('div')).className = 'db-meter-bar';
+const dbBarEls = Array.from(dbMeterEl.querySelectorAll('.db-meter-bar')).reverse();
+
+let isPsoRecording = false; let psoBuffer = [];
+
+function drawLoop() {
+    requestAnimationFrame(drawLoop);
+    if (isPaused || !isRunning) return;
+    try {
+        analyser.getByteFrequencyData(freqDataArray); analyser.getFloatTimeDomainData(timeDataArray);
+        let sum = 0; for (let i = 0; i < timeDataArray.length; i++) sum += timeDataArray[i] * timeDataArray[i];
+        const rms = Math.sqrt(sum / timeDataArray.length);
+        currentDb = rms > 0.0001 ? Math.max(0, 20 * Math.log10(rms) + CALIBRATION_OFFSET) : 0;
+        const silent = currentDb < 3;
+
+        let smoothed = 0;
+        if (silent) {
+            hzBuffer.length = 0; stabilityBuffer.length = 0; stableHz = 0; lockedHz = 0; candidateHz = 0; candidateCount = 0; currentHz = 0;
+        } else {
+            const hpsHz = hpsDetect(freqDataArray, audioCtx.sampleRate / 2, MAX_SEARCH_HZ);
+            smoothed = smoothHz(hpsHz);
+            const stable = stabilityFilter(smoothed, stabilityThreshold);
+            currentHz = hysteresisFilter(stable, stabilityThreshold);
+        }
+
+        if (isPsoRecording && !silent && smoothed > 0) psoBuffer.push(smoothed);
+
+        document.getElementById('hz-val').textContent = silent ? '—' : currentHz.toFixed(1);
+        document.getElementById('db-val').textContent = currentDb.toFixed(1);
+        
+        // 【變更】用學習過後的動態基準來自動判斷檔位
+        autoMatchCloudGear(silent ? 0 : currentHz);
+
+        const nyquist = audioCtx.sampleRate / 2;
+        const maxIdx = Math.floor((MAX_SEARCH_HZ / nyquist) * freqDataArray.length);
+        for (let i = 0; i < 32; i++) miniBarEls[i].style.height = Math.max(1, (freqDataArray[Math.floor((i / 32) * maxIdx)] / 255) * 100) + '%';
+
+        const litCount = Math.round(Math.min(1, currentDb / 90) * 20);
+        dbBarEls.forEach((b, i) => {
+            b.className = 'db-meter-bar';
+            if (i < litCount) { b.classList.add('lit'); if (i >= 17) b.classList.add('hot'); else if (i >= 13) b.classList.add('warn'); }
+        });
+
+        if (canvas.width !== canvas.offsetWidth) canvas.width = canvas.offsetWidth;
+        if (canvas.height !== canvas.offsetHeight) canvas.height = canvas.offsetHeight;
+        const imgData = ctx2d.getImageData(1, 0, canvas.width - 1, canvas.height);
+        ctx2d.putImageData(imgData, 0, 0);
+        for (let i = 0; i < maxIdx; i++) {
+            const y = canvas.height - ((i / maxIdx) * canvas.height), v = freqDataArray[i];
+            ctx2d.fillStyle = `rgb(${Math.min(255, v * 2)},${Math.max(0, v - 128) * 2},${v < 30 ? v * 3 : Math.max(0, 180 - v * 2)})`;
+            ctx2d.fillRect(canvas.width - 1, y, 1, Math.max(1, canvas.height / maxIdx));
+        }
+
+        if (!silent && currentHz > 0) {
+            const marker = document.getElementById('freq-marker'), markerLabel = document.getElementById('freq-marker-label'), yPos = canvas.height * (1 - (currentHz / MAX_SEARCH_HZ));
+            marker.style.cssText = `display:block; top:${yPos}px;`; markerLabel.style.cssText = `display:block; top:${yPos}px;`; markerLabel.textContent = currentHz.toFixed(1) + ' Hz';
+        } else {
+            document.getElementById('freq-marker').style.display = 'none'; document.getElementById('freq-marker-label').style.display = 'none';
+        }
+    } catch(e) {}
+}
+
+// ==========================================
+// GEAR MATCHING & UI RENDER
+// ==========================================
+let lastMatchedGear = null;
+function autoMatchCloudGear(hz) {
+    const gearEl = document.getElementById('gear-val');
+    if (hz <= 0) { gearEl.textContent = '—'; lastMatchedGear = null; highlightCalibGear(); return; }
+    
+    let best = null, minDiff = Infinity;
+    for (let i = 1; i <= MAX_GEARS; i++) {
+        const baseHz = dynamicProfileData[i]; // 使用動態基準來判斷
+        if (baseHz > 0) {
+            const diff = Math.abs(hz - baseHz);
+            if (diff < tolerance && diff < minDiff) { minDiff = diff; best = i; }
+        }
+    }
+    lastMatchedGear = best; 
+    gearEl.textContent = best !== null ? `GEAR ${best}` : '?';
+    highlightCalibGear();
+}
+
+function renderCalibBar() {
+    const bar = document.getElementById('calib-bar'); bar.innerHTML = '';
+    for (let i = 1; i <= MAX_GEARS; i++) {
+        // 【變更】UI 顯示學習過後的動態基準
+        const targetHz = dynamicProfileData[i];
+        const hasTarget = targetHz > 0;
+        
+        const box = document.createElement('div'); 
+        box.id = `calib-box-${i}`;
+        box.className = 'calib-gear' + (hasTarget ? ' calibrated' : '');
+        
+        // 【新增】 onclick="setCustomHz('${i}')" 讓數字可以點擊修改
+        box.innerHTML = `
+            <div class="calib-gear-top">
+                <span class="gear-num ${hasTarget?'set':''}">${i} 檔</span>
+                <button id="btn-rec-${i}" class="rec-btn" onclick="recordAndCheckGear('${i}')">● 寫入測試</button>
+            </div>
+            <div class="target-hz ${hasTarget?'set':''}" style="cursor:pointer;" onclick="setCustomHz('${i}')" title="點擊修改基準">
+                基準: <span id="target-val-${i}">${hasTarget ? targetHz : '---'}</span> Hz ✎
+            </div>
+        `;
+        bar.appendChild(box);
+    }
+}
+
+function highlightCalibGear() {
+    for (let i = 1; i <= MAX_GEARS; i++) {
+        const box = document.getElementById(`calib-box-${i}`);
+        if (box) {
+            if (lastMatchedGear == i) box.classList.add('active-gear');
+            else box.classList.remove('active-gear');
+        }
+    }
+}
+
+// ==========================================
+// PSO ALGORITHM
+// ==========================================
+function startPSO() {
+    if (!isRunning || isPaused) { showToast("⚠️ 請先 START MIC 讓麥克風運作"); return; }
+    showToast("🔍 PSO 擷取環境特徵中 (2秒)... 請保持設備運轉！");
+    document.getElementById('led').className = 'led pso-active'; document.getElementById('status-text').textContent = 'PSO SAMPLING';
+    isPsoRecording = true; psoBuffer = [];
+    
+    setTimeout(() => {
+        isPsoRecording = false;
+        document.getElementById('led').className = 'led on'; document.getElementById('status-text').textContent = 'ONLINE';
+        if (psoBuffer.length < 30) { showToast("❌ 失敗：環境太安靜或無穩定訊號，無法最佳化。"); return; }
+        showToast("🧠 粒子群演化計算中...");
+        
+        setTimeout(() => {
+            const bestParams = runPSO(psoBuffer);
+            const optTol = Math.round(bestParams[0]), optStab = Math.round(bestParams[1]);
+            document.getElementById('wrap-tol').classList.add('highlight'); document.getElementById('wrap-stab').classList.add('highlight');
+            setTimeout(() => { document.getElementById('wrap-tol').classList.remove('highlight'); document.getElementById('wrap-stab').classList.remove('highlight'); }, 2000);
+            updateTolerance(optTol); document.getElementById('tolerance-slider').value = optTol;
+            updateStability(optStab); document.getElementById('stability-slider').value = optStab;
+            showToast(`✨ 最佳化完成！ TOL: ±${optTol}Hz | STAB: ±${optStab}Hz`);
+        }, 100);
+    }, 2000);
+}
+
+function runPSO(buffer) {
+    const numParticles = 20, iterations = 30, w = 0.6, c1 = 1.5, c2 = 1.5;
+    let particles = [], pBests = [], pBestScores = [], gBest = [60, 15], gBestScore = -Infinity;
+    for(let i=0; i<numParticles; i++) {
+        let p = [ Math.random() * 145 + 5, Math.random() * 49 + 1 ];
+        let v = [ (Math.random()-0.5)*10, (Math.random()-0.5)*10 ];
+        particles.push({p, v}); pBests.push([...p]); pBestScores.push(-Infinity);
+    }
+    for(let iter=0; iter<iterations; iter++) {
+        for(let i=0; i<numParticles; i++) {
+            let score = evaluatePSO(particles[i].p[0], particles[i].p[1], buffer);
+            if(score > pBestScores[i]) { pBestScores[i] = score; pBests[i] = [...particles[i].p]; }
+            if(score > gBestScore) { gBestScore = score; gBest = [...particles[i].p]; }
+        }
+        for(let i=0; i<numParticles; i++) {
+            let part = particles[i];
+            for(let d=0; d<2; d++) {
+                part.v[d] = w * part.v[d] + c1 * Math.random() * (pBests[i][d] - part.p[d]) + c2 * Math.random() * (gBest[d] - part.p[d]);
+                part.p[d] += part.v[d];
+                if(d===0) part.p[d] = Math.max(5, Math.min(150, part.p[d]));
+                if(d===1) part.p[d] = Math.max(1, Math.min(50, part.p[d]));
+            }
+        }
+    }
+    return gBest;
+}
+
+function evaluatePSO(tol, stab, buffer) {
+    let simStabBuffer = [], simLockedHz = 0, simCandidateHz = 0, simCandidateCount = 0;
+    let lockedValues = [];
+    for(let smoothed of buffer) {
+        let simStableHz = 0;
+        simStabBuffer.push(smoothed);
+        if(simStabBuffer.length > STABILITY_FRAMES) simStabBuffer.shift();
+        if(simStabBuffer.length >= STABILITY_FRAMES && (Math.max(...simStabBuffer) - Math.min(...simStabBuffer)) <= stab) {
+            simStableHz = simStabBuffer.reduce((a,b)=>a+b,0)/simStabBuffer.length;
+        }
+        if(simStableHz <= 0) { simLockedHz = 0; simCandidateHz = 0; simCandidateCount = 0; } 
+        else {
+            if(simLockedHz > 0 && Math.abs(simStableHz - simLockedHz) <= stab) { simLockedHz = simStableHz; } 
+            else if(Math.abs(simStableHz - simCandidateHz) <= stab) { simCandidateCount++; } 
+            else { simCandidateHz = simStableHz; simCandidateCount = 1; }
+            if(simCandidateCount >= HYSTERESIS_FRAMES) { simLockedHz = simCandidateHz; simCandidateHz = 0; simCandidateCount = 0; }
+        }
+        if(simLockedHz > 0) lockedValues.push(simLockedHz);
+    }
+    if(lockedValues.length === 0) return -9999;
+    let mean = lockedValues.reduce((a,b)=>a+b,0) / lockedValues.length;
+    let stdDev = Math.sqrt(lockedValues.reduce((a,b)=>a + Math.pow(b-mean, 2), 0) / lockedValues.length);
+    let fitness = lockedValues.length - (stdDev * 8) - (stab * 0.8);
+    let targetTol = Math.max(5, Math.min(150, (stdDev * 3) + 5));
+    fitness -= Math.abs(tol - targetTol) * 1.5;
+    return fitness;
+}
+
+// MISC UI
+function toggleView() { const dash = document.getElementById('view-dashboard'); dash.classList.toggle('hidden'); document.getElementById('btn-view').textContent = dash.classList.contains('hidden') ? 'DASHBOARD' : 'SPECTROGRAM'; }
+let toastTimer; function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000); }
+function buildHzScale() {
+    const scaleEl = document.getElementById('hz-scale'), h = scaleEl.offsetHeight; if (!h) return;
+    scaleEl.innerHTML = '';
+    [20, 50, 100, 150, 200, 250, 300].forEach(hz => {
+        const ratio = hz / MAX_SEARCH_HZ, yPct = (1 - ratio) * 100; if (yPct < 0 || yPct > 100) return;
+        const tick = document.createElement('div'); tick.className = 'hz-tick'; tick.style.bottom = (ratio * 100) + '%';
+        tick.innerHTML = `<span class="hz-tick-label">${hz}</span><span class="hz-tick-line"></span>`; scaleEl.appendChild(tick);
+    });
+}
+buildHzScale(); window.addEventListener('resize', buildHzScale);
+</script>
