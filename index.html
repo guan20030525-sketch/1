@@ -71,6 +71,7 @@
     .led.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
     .led.paused { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
     .led.pso-active { background: var(--purple); box-shadow: 0 0 10px var(--purple); animation: blink 0.5s infinite alternate; }
+    .led.rec-active { background: var(--pink); box-shadow: 0 0 10px var(--pink); animation: blink 0.4s infinite alternate; }
     @keyframes blink { from { opacity: 1; } to { opacity: 0.4; } }
 
     /* ── BUTTONS ── */
@@ -88,6 +89,12 @@
     .btn.active-green { border-color: var(--green); color: var(--green); }
     .btn.ai-pso { border-color: var(--purple); color: var(--purple); }
     .btn.ai-pso:hover { background: var(--purple); color: #fff; }
+    
+    /* 錄音專用樣式 */
+    .btn.rec-disabled { border-color: #263238; color: #37474f; cursor: not-allowed; }
+    .btn.rec-ready { border-color: var(--pink); color: var(--pink); }
+    .btn.rec-ready:hover { background: rgba(255, 32, 85, 0.15); }
+    .btn.rec-now { background: var(--pink); border-color: var(--pink); color: #fff; animation: blink 0.8s infinite alternate; }
 
     /* ── PROFILE BAR (CLOUD UPDATE) ── */
     .profile-bar {
@@ -186,6 +193,7 @@
         <button id="btn-pso" class="btn ai-pso" onclick="startPSO()">✦ PSO OPTIMIZE</button>
         <button id="btn-mic" class="btn primary" onclick="startMic()">START MIC</button>
         <button id="btn-pause" class="btn danger" onclick="togglePause()">PAUSE</button>
+        <button id="btn-record" class="btn rec-disabled" onclick="toggleAudioRecording()" disabled>● RECORD</button>
         <button id="btn-view" class="btn" onclick="toggleView()">SPECTROGRAM</button>
         <div class="status-pill">
             <span class="led" id="led"></span>
@@ -434,6 +442,12 @@ let audioCtx, analyser, freqDataArray, timeDataArray, source;
 let isRunning = false, isPaused = false;
 let currentHz = 0, currentDb = 0;
 
+// 【新增】錄音功能核心變數
+let mediaRecorder;
+let recordedChunks = [];
+let isRecordingAudio = false;
+let micStream = null;
+
 const HZ_SMOOTH_FRAMES = 8, STABILITY_FRAMES = 15, HYSTERESIS_FRAMES = 10;
 const hzBuffer = [], stabilityBuffer = [];
 let stableHz = 0, stableFrameCount = 0, lockedHz = 0, candidateHz = 0, candidateCount = 0;
@@ -493,13 +507,22 @@ async function startMic() {
     if (isRunning) return;
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream = stream; // 暫存 Stream 給錄音模組使用
+        
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioCtx.createAnalyser(); analyser.fftSize = FFT_SIZE; analyser.smoothingTimeConstant = 0.75;
         source = audioCtx.createMediaStreamSource(stream); source.connect(analyser);
         freqDataArray = new Uint8Array(analyser.frequencyBinCount); timeDataArray = new Float32Array(analyser.fftSize);
         isRunning = true;
+        
         document.getElementById('led').className = 'led on'; document.getElementById('status-text').textContent = 'ONLINE';
         document.getElementById('btn-mic').textContent = 'MIC ON'; document.getElementById('btn-mic').classList.replace('primary', 'active-green');
+        
+        // 啟用錄音按鈕並更改其視覺樣式
+        const recBtn = document.getElementById('btn-record');
+        recBtn.disabled = false;
+        recBtn.className = 'btn rec-ready';
+        
         drawLoop();
     } catch(err) { showToast('Mic Error: ' + err.message); }
 }
@@ -508,8 +531,98 @@ function togglePause() {
     if (!isRunning) return;
     isPaused = !isPaused;
     document.getElementById('btn-pause').textContent = isPaused ? 'RESUME' : 'PAUSE';
-    document.getElementById('led').className = 'led ' + (isPaused ? 'paused' : 'on');
+    
+    // 如果正在進行錄音，暫停時維持錄音狀態的 LED 動態
+    if (!isRecordingAudio) {
+        document.getElementById('led').className = 'led ' + (isPaused ? 'paused' : 'on');
+    }
     document.getElementById('status-text').textContent = isPaused ? 'PAUSED' : 'ONLINE';
+}
+
+// 【新增】控制錄音啟動與停止邏輯
+function toggleAudioRecording() {
+    if (!isRunning || !micStream) return;
+    
+    const recBtn = document.getElementById('btn-record');
+    
+    if (!isRecordingAudio) {
+        // --- 啟動錄音 ---
+        recordedChunks = [];
+        
+        // 尋找瀏覽器支援的封裝格式
+        let options = { mimeType: 'audio/webm;codecs=opus' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'audio/webm' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'audio/ogg;codecs=opus' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'audio/mp4' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) options = {}; 
+
+        try {
+            mediaRecorder = new MediaRecorder(micStream, options);
+            
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+            };
+            
+            mediaRecorder.onstop = () => {
+                const mime = mediaRecorder.mimeType || 'audio/webm';
+                const blob = new Blob(recordedChunks, { type: mime });
+                const url = URL.createObjectURL(blob);
+                
+                // 動態判斷副檔名
+                let ext = 'webm';
+                if (mime.includes('ogg')) ext = 'ogg';
+                if (mime.includes('mp4')) ext = 'mp4';
+                if (mime.includes('wav')) ext = 'wav';
+                
+                // 命名邏輯：結合當前載入的設備編號/名稱與時間戳記
+                const now = new Date();
+                const timeStr = now.getFullYear() +
+                                String(now.getMonth() + 1).padStart(2, '0') +
+                                String(now.getDate()).padStart(2, '0') + '_' +
+                                String(now.getHours()).padStart(2, '0') +
+                                String(now.getMinutes()).padStart(2, '0') +
+                                String(now.getSeconds()).padStart(2, '0');
+                                
+                const selectedDevice = document.getElementById('cloud-profile-select').value || 'CUSTOM_DEVICE';
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Acoustic_Rec_${selectedDevice}_${timeStr}.${ext}`;
+                document.body.appendChild(a);
+                a.click();
+                
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+                
+                showToast(`💾 錄音下載完成：.${ext} 檔`);
+            };
+
+            mediaRecorder.start();
+            isRecordingAudio = true;
+            
+            recBtn.className = 'btn rec-now';
+            recBtn.textContent = '■ STOP REC';
+            document.getElementById('led').className = 'led rec-active';
+            document.getElementById('status-text').textContent = 'RECORDING';
+            showToast("🎙️ 系統音訊錄製中...");
+            
+        } catch (err) {
+            showToast("❌ 無法啟動錄音機: " + err.message);
+        }
+    } else {
+        // --- 停止錄音 ---
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+        isRecordingAudio = false;
+        
+        recBtn.className = 'btn rec-ready';
+        recBtn.textContent = '● RECORD';
+        document.getElementById('led').className = 'led ' + (isPaused ? 'paused' : 'on');
+        document.getElementById('status-text').textContent = isPaused ? 'PAUSED' : 'ONLINE';
+    }
 }
 
 const miniBarsEl = document.getElementById('mini-bars');
@@ -646,7 +759,9 @@ function startPSO() {
     
     setTimeout(() => {
         isPsoRecording = false;
-        document.getElementById('led').className = 'led on'; document.getElementById('status-text').textContent = 'ONLINE';
+        document.getElementById('led').className = 'led ' + (isRecordingAudio ? 'rec-active' : 'on');
+        document.getElementById('status-text').textContent = isRecordingAudio ? 'RECORDING' : 'ONLINE';
+        
         if (psoBuffer.length < 30) { showToast("❌ 失敗：環境太安靜或無穩定訊號，無法最佳化。"); return; }
         showToast("🧠 粒子群演化計算中...");
         
@@ -731,3 +846,5 @@ function buildHzScale() {
 }
 buildHzScale(); window.addEventListener('resize', buildHzScale);
 </script>
+</body>
+</html>
