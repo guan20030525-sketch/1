@@ -275,7 +275,7 @@ class AcousticChannel {
         this.analyser = null;
         this.source = null;
         this.stream = null;
-        this.mediaRecorder = null;
+        this.recorderProcessor = null; // 【變更】取代原先的 MediaRecorder，改採 ScriptProcessorNode 捕捉原始 PCM
         
         this.freqDataArray = null;
         this.timeDataArray = null;
@@ -283,7 +283,10 @@ class AcousticChannel {
         this.isRunning = false;
         this.isPaused = false;
         this.isRecording = false;
-        this.recordedChunks = [];
+        
+        // 【新增】每軌獨立的 WAV 採集快取緩衝區
+        this.wavSamples = [];
+        this.wavLength = 0;
         
         this.currentHz = 0;
         this.currentDb = 0;
@@ -411,6 +414,18 @@ class AcousticChannel {
             this.source = this.audioCtx.createMediaStreamSource(this.stream);
             this.source.connect(this.analyser);
             
+            // 【新增】建立時體音訊管道線路，當 isRecording 開啟時將 PCM 直接送入快取陣列
+            this.recorderProcessor = this.audioCtx.createScriptProcessor(4096, 1, 1);
+            this.recorderProcessor.onaudioprocess = (e) => {
+                if (this.isRunning && this.isRecording && !this.isPaused) {
+                    let pcmChannelData = e.inputBuffer.getChannelData(0);
+                    this.wavSamples.push(new Float32Array(pcmChannelData));
+                    this.wavLength += pcmChannelData.length;
+                }
+            };
+            this.source.connect(this.recorderProcessor);
+            this.recorderProcessor.connect(this.audioCtx.destination); // 必須維持底層輸出連接以持續觸發時脈
+            
             this.freqDataArray = new Uint8Array(this.analyser.frequencyBinCount);
             this.timeDataArray = new Float32Array(this.analyser.fftSize);
             
@@ -437,71 +452,67 @@ class AcousticChannel {
         }
     }
 
+    // 【核心重構】不再使用傳統 webm 壓縮，改採前端 PCM 陣列壓製為標準 WAV
     toggleRecording() {
         if (!this.isRunning || !this.stream) return;
         
         if (!this.isRecording) {
-            this.recordedChunks = [];
-            let options = { mimeType: 'audio/webm;codecs=opus' };
-            if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'audio/webm' };
-            if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'audio/mp4' };
-            options = MediaRecorder.isTypeSupported(options.mimeType) ? options : {};
-
-            try {
-                this.mediaRecorder = new MediaRecorder(this.stream, options);
-                this.mediaRecorder.ondataavailable = (e) => {
-                    if (e.data && e.data.size > 0) this.recordedChunks.push(e.data);
-                };
-                
-                this.mediaRecorder.onstop = () => {
-                    const mime = this.mediaRecorder.mimeType || 'audio/webm';
-                    const blob = new Blob(this.recordedChunks, { type: mime });
-                    const url = URL.createObjectURL(blob);
-                    
-                    let ext = 'webm';
-                    if (mime.includes('mp4')) ext = 'mp4';
-                    if (mime.includes('ogg')) ext = 'ogg';
-
-                    const now = new Date();
-                    const timeStr = now.getFullYear() +
-                                    String(now.getMonth() + 1).padStart(2, '0') +
-                                    String(now.getDate()).padStart(2, '0') + '_' +
-                                    String(now.getHours()).padStart(2, '0') +
-                                    String(now.getMinutes()).padStart(2, '0') +
-                                    String(now.getSeconds()).padStart(2, '0');
-                                    
-                    const activeProfile = document.getElementById('cloud-profile-select').value || 'GENERIC';
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `Multi_Rec_${activeProfile}_CH${this.id}_${timeStr}.${ext}`;
-                    document.body.appendChild(a);
-                    a.click();
-                    
-                    setTimeout(() => {
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-                    }, 100);
-                    
-                    showToast(`💾 CH-${this.id} 錄音導出成功 (.${ext})`);
-                };
-
-                this.mediaRecorder.start();
-                this.isRecording = true;
-                this.dom.btnRec.className = 'card-btn rec-now';
-                this.dom.btnRec.textContent = '■ STOP';
-                this.dom.led.className = 'led rec-active';
-                showToast(`🎙️ CH-${this.id} 正在多軌同步錄製中...`);
-            } catch(err) {
-                showToast("錄音啟動失敗: " + err.message);
-            }
+            // --- 啟動錄音：初始化快取區 ---
+            this.wavSamples = [];
+            this.wavLength = 0;
+            this.isRecording = true;
+            
+            this.dom.btnRec.className = 'card-btn rec-now';
+            this.dom.btnRec.textContent = '■ STOP';
+            this.dom.led.className = 'led rec-active';
+            showToast(`🎙️ CH-${this.id} 正在採集無損 .wav 音訊訊號...`);
         } else {
-            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-                this.mediaRecorder.stop();
-            }
+            // --- 停止錄音：扁平化快取並導出無損 WAV 標頭 ---
             this.isRecording = false;
             this.dom.btnRec.className = 'card-btn';
             this.dom.btnRec.textContent = '● RECORD';
             this.dom.led.className = 'led ' + (this.isPaused ? 'paused' : 'on');
+            
+            if (this.wavLength === 0) {
+                return showToast("⚠️ 未採集到足夠的音訊緩衝資料");
+            }
+            
+            // 1. 將分段 Float32 快取整合成單一連續區塊
+            let flatBuffer = new Float32Array(this.wavLength);
+            let currentOffset = 0;
+            for (let i = 0; i < this.wavSamples.length; i++) {
+                flatBuffer.set(this.wavSamples[i], currentOffset);
+                currentOffset += this.wavSamples[i].length;
+            }
+            
+            // 2. 透過全局編碼器壓製成標準 16-bit RIFF WAV 結構
+            let encodedWavArrayBuffer = bufferToWavEncoder(flatBuffer, this.audioCtx.sampleRate);
+            const blob = new Blob([encodedWavArrayBuffer], { type: 'audio/wav' });
+            const url = URL.createObjectURL(blob);
+
+            const now = new Date();
+            const timeStr = now.getFullYear() +
+                            String(now.getMonth() + 1).padStart(2, '0') +
+                            String(now.getDate()).padStart(2, '0') + '_' +
+                            String(now.getHours()).padStart(2, '0') +
+                            String(now.getMinutes()).padStart(2, '0') +
+                            String(now.getSeconds()).padStart(2, '0');
+                            
+            const activeProfile = document.getElementById('cloud-profile-select').value || 'GENERIC';
+            
+            // 3. 觸發自動下載
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Multi_Rec_${activeProfile}_CH${this.id}_${timeStr}.wav`;
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            showToast(`💾 CH-${this.id} 無損 .wav 錄音下載完成！`);
         }
     }
 
@@ -632,7 +643,11 @@ class AcousticChannel {
     }
 
     destroy() {
-        if (this.isRecording && this.mediaRecorder) this.mediaRecorder.stop();
+        this.isRecording = false;
+        if (this.recorderProcessor) {
+            this.recorderProcessor.disconnect();
+            this.recorderProcessor.onaudioprocess = null;
+        }
         if (this.stream) this.stream.getTracks().forEach(track => track.stop());
         if (this.audioCtx) this.audioCtx.close();
         
@@ -643,12 +658,61 @@ class AcousticChannel {
 }
 
 // ==========================================
+// 【新增】GLOBAL CANONICAL 16-BIT WAV ENCODER
+// ==========================================
+function bufferToWavEncoder(floatSamples, sampleRate) {
+    let bufferLen = floatSamples.length;
+    let arrayBuffer = new ArrayBuffer(44 + bufferLen * 2);
+    let view = new DataView(arrayBuffer);
+
+    /* RIFF header identifier */
+    writeStringTag(view, 0, 'RIFF');
+    /* file size allocation */
+    view.setUint32(4, 36 + bufferLen * 2, true);
+    /* WAVE sub-type format */
+    writeStringTag(view, 8, 'WAVE');
+    /* format chunk descriptor */
+    writeStringTag(view, 12, 'fmt ');
+    /* chunk length specification */
+    view.setUint32(16, 16, true);
+    /* sample type (1 = Uncompressed 16-bit PCM Integer) */
+    view.setUint16(20, 1, true);
+    /* single channel tracking (Mono for structural analytics) */
+    view.setUint16(22, 1, true);
+    /* input sampling rate context */
+    view.setUint32(24, sampleRate, true);
+    /* global byte rate profile */
+    view.setUint32(28, sampleRate * 2, true);
+    /* block data alignment target */
+    view.setUint16(32, 2, true);
+    /* quantization bits */
+    view.setUint16(34, 16, true);
+    /* data chunk header */
+    writeStringTag(view, 36, 'data');
+    /* size array context */
+    view.setUint32(40, bufferLen * 2, true);
+
+    // Write quantized raw amplitude blocks
+    let baseIdx = 44;
+    for (let i = 0; i < floatSamples.length; i++, baseIdx += 2) {
+        let sample = Math.max(-1, Math.min(1, floatSamples[i]));
+        view.setInt16(baseIdx, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+    }
+    return arrayBuffer;
+}
+
+function writeStringTag(view, offset, str) {
+    for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+    }
+}
+
+// ==========================================
 // SYSTEM MANAGEMENT & INTERFACES
 // ==========================================
 async function initSystem() {
     renderCalibBarStructure();
     try {
-        // 先請求權限以完整取得裝置標籤名稱
         await navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t=>t.stop()));
         const devices = await navigator.mediaDevices.enumerateDevices();
         availableAudioDevices = devices.filter(d => d.kind === 'audioinput');
@@ -664,15 +728,12 @@ async function initSystem() {
         setSyncStatus('var(--green)', '已連線');
         showToast("✅ 多軌雲端資料庫同步完成");
         
-        // 預設自動建立第一個監控通道
         createChannelInstance();
     } catch (err) {
         setSyncStatus('var(--pink)', '連線失敗');
         showToast("❌ 無法讀取硬體或雲端庫，已切換至離線預備狀態");
         createChannelInstance();
     }
-    
-    // 啟動全局中央時脈更新環
     executeGlobalClock();
 }
 
@@ -685,7 +746,6 @@ function createChannelInstance() {
 
 function executeGlobalClock() {
     requestAnimationFrame(executeGlobalClock);
-    // 輪詢所有活動通道執行同步 DSP 轉換
     activeChannels.forEach(chan => {
         if (chan.isRunning) chan.processDSP();
     });
@@ -744,7 +804,6 @@ async function writeTestRecord(gearNum) {
     const deviceName = document.getElementById('cloud-profile-select').value;
     if (!deviceName) return showToast("⚠️ 請先選擇欲上傳校正的設備模型");
     
-    // 尋找當前判定處於此檔位或是穩定值最高的通道資料
     let validChannel = activeChannels.find(c => c.isRunning && c.currentHz > 0);
     if (!validChannel) return showToast("⚠️ 找不到任何具備有效音訊訊號的活動通道");
     
@@ -909,7 +968,6 @@ function renderCalibBarStructure() {
 }
 
 function highlightCalibBarGears() {
-    // 檢查是否有通道偵測到了檔位，並高亮對應的底部資訊列
     let activeGears = activeChannels.map(c => c.lastMatchedGear).filter(g => g !== null);
     for (let i = 1; i <= MAX_GEARS; i++) {
         const box = document.getElementById(`calib-box-${i}`);
